@@ -101,16 +101,20 @@ int main()
 
 	// If cmd is to quit shell, we exit
 	if(strcmp(token[0],"quit") == 0 || strcmp(token[0], "exit") ==0)		
-		return EXIT_SUCCESS;
+		return 0;
 
 	// If cmd is tp change directory, we do so from main thread
 	else if(strcmp(token[0],"cd") == 0)
+	{	
 		if(chdir(token[1]) == -1)
 			printf("Directory could not be changed. Please verify path.\n");
-					
+	}
+				
 	else
 	{
+
 		pid_t pid = fork();
+	
 		int status;
 
 		if(pid == -1)
@@ -125,17 +129,36 @@ int main()
 		}
 
 		else
-		{			
-			if(execvp(PATH, token) == -1)
-			{	
-				printf("%s\n", errno);
-				exit(EXIT_FAILURE);
-			}
-			else
-				exit(EXIT_SUCCESS);				
+		{		
+
+			//Define paths to search commands in, in the order we will search them
+			char* path1 = (char*)malloc(MAX_COMMAND_SIZE + 15);
+			strcpy(path1,"./");
+			strcat(path1, token[0]);
+
+			char* path2= (char*)malloc(MAX_COMMAND_SIZE + 15);
+			strcpy(path2,"/usr/local/bin/");
+			strcat(path2, token[0]);
+
+			char* path3= (char*)malloc(MAX_COMMAND_SIZE + 15);
+			strcpy(path3,"/usr/bin/");
+			strcat(path3, token[0]);
+	
+			char* path4= (char*)malloc(MAX_COMMAND_SIZE + 15);
+			strcpy(path4, "/bin/");
+			strcat(path4, token[0]);
+
+			if(execv(path1, token) == -1)
+				if(execv(path2, token) == -1)
+					if(execv(path3, token) == -1)
+						if(execv(path4, token) == -1)
+							printf("%s\n", errno);
+
+			free(path1); free(path2); free(path3); free(path4);
+			exit(EXIT_SUCCESS);
 		}
 	}
 	
 	}
-	return EXIT_SUCCESS;
+	return 0;
 }
