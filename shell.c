@@ -16,18 +16,17 @@
 
 #define WHITESPACE " \t\n"      // We want to split our command line up into tokens
                                 			// so we need to define what delimits our tokens.
-                               				 // In this case  white space
+                               				 // In this case white space and tabs
                                 			// will separate the tokens on our command line
 
 #define MAX_COMMAND_SIZE 255    // The maximum command-line size
 
 #define MAX_NUM_ARGUMENTS 11     // Mav shell only supports one command plus 10 arguments at a time
 
-//#define PATH ":/usr/local/bin:/usr/bin:/bin"
-
-void parse_input(char**, char*);
-void update_history(char**, char*, int);
-void update_pids(int[15], int, int);
+void parse_input(char**, char*);				//foo to parse input and tokenize it into array of cmd + parameters
+void update_history(char**, char*, int);		//updates array of previous commands typed in
+void update_pids(int[15], int, int);			//updates array of previously spawned pids
+void handle_signal(){}						//handler for SIGTSTP and SIGINT in parent, designed to ignore them
 
 int main()
 {
@@ -38,148 +37,186 @@ int main()
 	char* cmd_str = (char*) malloc( MAX_COMMAND_SIZE );
 
 	//set up array of ints to store up to 15 PIDs, initialize all to 0. 
-	//initialize pid counter to 0
+	//initialize pid counter to 0. This will track what is the next array position to fill
 	int pids[15];
 	for(i = 0; i < 15; i++)
 		pids[i] = 0;
 	int pid_ctr = 0;
 
-	//we allocate enough memory to hold a15 input strings
-	//initialize history counter to 0;
+	//we allocate enough memory to hold 15 input strings
+	//initialize history counter to 0. This will track what is the next array position to fill
 	char* history[15];
 	for(i = 0; i < 15; i++)
 		history[i] = (char*)malloc(MAX_COMMAND_SIZE);	
 	int hist_ctr = 0;
 
+	//we define act as a sigaction, and set the foo handle_signal as its handler
+	//act will point to the action parent will take when certain signals are raised
+	struct sigaction act;
+	memset(&act, '\0', sizeof(act));
+	act.sa_handler = &handle_signal;
+	
+	//set act as the sigaction for SIGINT or SIGTSTP. If it fails, we terminate program
+  	if (sigaction(SIGINT , &act , NULL) < 0)
+	{
+		perror ("sigaction: ");
+		return 1;
+  	}
+  	if (sigaction(SIGTSTP , &act , NULL) < 0)
+	{
+		perror ("sigaction: ");
+		return 1;
+  	}
+
+	//We loop infinitely, until user types exit commands
 	while( 1 )
 	{
+		// Print out the msh prompt
+		printf ("msh> ");
 
-	// Print out the msh prompt
-	printf ("msh> ");
+		// Read the command from the commandline.
+		// Maximum command that will be read is MAX_COMMAND_SIZE
+		// This while command will wait here until the user
+		// inputs something since fgets returns NULL when there
+		// is no input
+		while( !fgets (cmd_str, MAX_COMMAND_SIZE, stdin) );
 
-	// Read the command from the commandline.
-	// Maximum command that will be read is MAX_COMMAND_SIZE
-	// This while command will wait here until the user
-	// inputs something since fgets returns NULL when there
-	// is no input
-	while( !fgets (cmd_str, MAX_COMMAND_SIZE, stdin) );
+		//Check if input is a blank line; if it is, we loop and ask for input again
+		//if at least one char is not a blank space, then string is valid
+		//note: non-empty strings with leading spaces are NOT valid
+		int is_valid = 0;
 
-	//Check if input is a blank line; if it is, we loop and ask for input again
-	int is_valid = 0;
+		for(i = 0; i < strlen(cmd_str) -1; i++)
+			if(cmd_str[i] != ' ' && cmd_str[i] != '\t' && cmd_str[i] != '\n')
+				is_valid = 1;
 
-	for(i = 0; i < strlen(cmd_str) -1; i++)
-		if(cmd_str[i] != ' ' && cmd_str[i] != '\t' && cmd_str[i] != '\n')
-			is_valid = 1;
+		if(is_valid == 0)
+			continue;
 
-	if(is_valid == 0)
-		continue;
+		//define array for tokenized input
+		char* token[MAX_NUM_ARGUMENTS];                       
+	
+		//call function to tokenize input string		                                   
+		parse_input(token, cmd_str);
 
-	//if input is not void, we store it in history array
-	//and we update hist_ctr to the next stop to be filled
-	update_history(history, cmd_str, hist_ctr);
-	hist_ctr++;
+		//if the command is to re-run nth command in history, 
+		//we parse number to int and re-tokenize the input, if existing, at that point in history
+		//if number not an int, or not in valid range, we loop back to msh> prompt
+		if(token[0][0] == '!')
+		{
+			token[0][0] = '0';
+			int n = atoi(token[0]);
+			if((n <= 0) || (n > hist_ctr))
+			{
+				printf("Command not in history.\n");
+				continue;
+			}
+			else
+			{
+				char* token2[MAX_NUM_ARGUMENTS]; 
+				parse_input(token2, history[n-1]);
+				*token = *token2;
+			}
+		}
 
-	/* Parse input */
-	char* token[MAX_NUM_ARGUMENTS];                       
-			                                   
-	parse_input(token, cmd_str);
+		//We store input string in history array
+		//and we update hist_ctr to the next stop to be filled
+		//We must do this after checking for the ! cmd
+		//or ! will run wrong command
+		update_history(history, cmd_str, hist_ctr);
+		hist_ctr++;
 
-	// If cmd is to quit shell, we exit
-	if(strcmp(token[0],"quit") == 0 || strcmp(token[0], "exit") ==0)		
-		return 0;
+		// If cmd is to quit shell, we exit loop
+		if(strcmp(token[0],"quit") == 0 || strcmp(token[0], "exit") ==0)		
+			break;
 
-	// If cmd is tp change directory, we do so from main thread
-	else if(strcmp(token[0],"cd") == 0)
-	{	
-		if(chdir(token[1]) == -1)
-			printf("Directory could not be changed. Please verify path.\n");
-	}
+		// If cmd is to change directory, we do so from main thread
+		else if(strcmp(token[0],"cd") == 0)
+		{	
+			if(chdir(token[1]) == -1)
+				printf("Directory could not be changed. Please verify path.\n");
+		}
 
-	else if(strcmp(token[0], "listpids") == 0)
-	{
-		int j = 14;
+		else if(strcmp(token[0], "listpids") == 0)
+		{
+			int j = 15;
 
-		if(pid_ctr < 15)
-			j = pid_ctr;
+			if(pid_ctr < 15)
+				j = pid_ctr;
 
-		for(i = 0; i < j; i++)
-			printf("%d: %d\n", i, pids[i]);
-	}
+			for(i = 0; i < j; i++)
+				printf("%d: %d\n", i+1, pids[i]);
+		}
 
-	else if(strcmp(token[0], "history") == 0)
-	{
-		int j = 14;
+		else if(strcmp(token[0], "history") == 0)
+		{
+			int j = 15;
 
-		if(hist_ctr < 15)
-			j = hist_ctr;
+			if(hist_ctr < 15)
+				j = hist_ctr;
 
-		for(i = 0; i < j; i++)
-			printf("%d: %s", i, history[i]);
-	}
-
-	else if(token[0][0] == '!')
-	{
-		token[0][0] = '0';
-		int n = atoi(token[0]);
-		if(n <= 0)
-			printf("'!' command only works for numbers between 1 and 15\n");
-		else if(n > hist_ctr)
-			printf("Command not in history.\n");
-		else{}
-	}
+			for(i = 0; i < j; i++)
+				printf("%d: %s", i+1, history[i]);
+		}	
 				
-	else
-	{
-
-		pid_t pid = fork();
-	
-		int status;
-
-		if(pid == -1)
-		{
-			printf("Thread creation attempt failed. Program will exit now\n");
-			exit(EXIT_FAILURE);
-		}
-
-		else if(pid != 0)
-		{
-			update_pids(pids, pid, pid_ctr);
-			pid_ctr++;
-			wait(&status);
-		}
-
 		else
-		{		
+		{
 
-			//Define paths to search commands in, in the order we will search them
-			char* path1 = (char*)malloc(MAX_COMMAND_SIZE + 15);
-			strcpy(path1,"./");
-			strcat(path1, token[0]);
-
-			char* path2= (char*)malloc(MAX_COMMAND_SIZE + 15);
-			strcpy(path2,"/usr/local/bin/");
-			strcat(path2, token[0]);
-
-			char* path3= (char*)malloc(MAX_COMMAND_SIZE + 15);
-			strcpy(path3,"/usr/bin/");
-			strcat(path3, token[0]);
+			pid_t pid = fork();
 	
-			char* path4= (char*)malloc(MAX_COMMAND_SIZE + 15);
-			strcpy(path4, "/bin/");
-			strcat(path4, token[0]);
+			int status;
 
-			if(execv(path1, token) == -1)
-				if(execv(path2, token) == -1)
-					if(execv(path3, token) == -1)
-						if(execv(path4, token) == -1)
-							printf("%s: Command not found.\n", token[0]);
+			if(pid == -1)
+			{
+				printf("Thread creation attempt failed. Program will exit now\n");
+				exit(EXIT_FAILURE);
+			}
 
-			free(path1); free(path2); free(path3); free(path4);
-			exit(EXIT_SUCCESS);
+			else if(pid != 0)
+			{
+				update_pids(pids, pid, pid_ctr);
+				pid_ctr++;
+				wait(&status);
+			}
+
+			else
+			{		
+
+				//Define paths to search commands in, in the order we will search them
+				char* path1 = (char*)malloc(MAX_COMMAND_SIZE + 15);
+				strcpy(path1,"./");
+				strcat(path1, token[0]);
+
+				char* path2= (char*)malloc(MAX_COMMAND_SIZE + 15);
+				strcpy(path2,"/usr/local/bin/");
+				strcat(path2, token[0]);
+
+				char* path3= (char*)malloc(MAX_COMMAND_SIZE + 15);
+				strcpy(path3,"/usr/bin/");
+				strcat(path3, token[0]);
+	
+				char* path4= (char*)malloc(MAX_COMMAND_SIZE + 15);
+				strcpy(path4, "/bin/");
+				strcat(path4, token[0]);
+
+				if(execv(path1, token) == -1)
+					if(execv(path2, token) == -1)
+						if(execv(path3, token) == -1)
+							if(execv(path4, token) == -1)
+								printf("%s: Command not found.\n", token[0]);
+
+				free(path1); free(path2); free(path3); free(path4);
+				exit(EXIT_SUCCESS);
+			}
 		}
-	}
 	
 	}
+
+	//once loop has been exited, we free memory and exit program
+	for(i = 0; i < 15; i++)
+		free(history[i]);
+	free(cmd_str);
+
 	return 0;
 }
 
@@ -226,6 +263,10 @@ void parse_input(char** token, char* cmd_str)
 
 	return;
 }
+
+//for both update functions: if counter, aka next position to fill, is less than 
+//max possible position, we place new element at that postion
+//else, we shift elements and place new one at last possible location
 
 void update_history(char** history, char* cmd_str, int hist_ctr)
 {
