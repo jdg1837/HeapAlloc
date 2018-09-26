@@ -14,19 +14,21 @@
 #include <string.h>
 #include <signal.h>
 
-#define WHITESPACE " \t\n"      // We want to split our command line up into tokens
-                                			// so we need to define what delimits our tokens.
-                               				 // In this case white space and tabs
-                                			// will separate the tokens on our command line
+#define WHITESPACE " \t\n"		// We want to split our command line up into tokens
+                                		// so we need to define what delimits our tokens.
+                               			// In this case white space and tabs
+                                		// will separate the tokens on our command line
 
-#define MAX_COMMAND_SIZE 255    // The maximum command-line size
+#define MAX_COMMAND_SIZE 255	// The maximum command-line size
 
-#define MAX_NUM_ARGUMENTS 11     // Mav shell only supports one command plus 10 arguments at a time
+#define MAX_NUM_ARGUMENTS 11	// Mav shell only supports one command plus 10 arguments at a time
+
+pid_t last_pid;					//this variable will hold pid of last spawned child, to resume it if necessary
 
 void parse_input(char**, char*);				//foo to parse input and tokenize it into array of cmd + parameters
 void update_history(char**, char*, int);		//updates array of previous commands typed in
 void update_pids(int[15], int, int);			//updates array of previously spawned pids
-void handle_signal(){}						//handler for SIGTSTP and SIGINT in parent, designed to ignore them
+void handle_signal(){}							//handler for SIGTSTP and SIGINT in parent, designed to ignore them
 
 int main()
 {
@@ -137,6 +139,14 @@ int main()
 				printf("Directory could not be changed. Please verify path.\n");
 		}
 
+		//bg will background the last spawned process, if possible
+		else if(strcmp(token[0],"bg") == 0)
+		{	
+			kill(last_pid, SIGCONT);
+		}
+
+		//listpids list the pids of all children, if they are fewer than 15
+		//if there are more than that, the last 15 will be shown
 		else if(strcmp(token[0], "listpids") == 0)
 		{
 			int j = 15;
@@ -148,6 +158,8 @@ int main()
 				printf("%d: %d\n", i+1, pids[i]);
 		}
 
+		//history list the last 15 commands
+		//if fewer than 15, print all
 		else if(strcmp(token[0], "history") == 0)
 		{
 			int j = 15;
@@ -158,30 +170,36 @@ int main()
 			for(i = 0; i < j; i++)
 				printf("%d: %s", i+1, history[i]);
 		}	
-				
+		
+		//if the command is none of these, we assume it is an exec call and treat it as such
 		else
 		{
-
+			//we fork to execute the command in the child process
 			pid_t pid = fork();
 	
 			int status;
 
-			if(pid == -1)
+			//if pid == -1, forking failed and we exit
+			if(pid < 0)
 			{
 				printf("Thread creation attempt failed. Program will exit now\n");
 				exit(EXIT_FAILURE);
 			}
 
-			else if(pid != 0)
+			//if pid is a positive number, it is the child pid, and we are in parent process
+			//we update pid as the latest pid, and add it to the pidlist
+			//we wait for child to exit, then we loop again
+			else if(pid > 0)
 			{
 				update_pids(pids, pid, pid_ctr);
 				pid_ctr++;
+				last_pid = pid;
 				wait(&status);
 			}
 
+			//if pid == 0, we are in child. We run command as an exec call
 			else
 			{		
-
 				//Define paths to search commands in, in the order we will search them
 				char* path1 = (char*)malloc(MAX_COMMAND_SIZE + 15);
 				strcpy(path1,"./");
@@ -199,12 +217,15 @@ int main()
 				strcpy(path4, "/bin/");
 				strcat(path4, token[0]);
 
+				//we try to execute command from each path. We try the next option only if current ont fails
+				//if no option works, we treat the command as invalid
 				if(execv(path1, token) == -1)
 					if(execv(path2, token) == -1)
 						if(execv(path3, token) == -1)
 							if(execv(path4, token) == -1)
 								printf("%s: Command not found.\n", token[0]);
 
+				//whatever the result of the exec call, we free allocated memory and termiante child process
 				free(path1); free(path2); free(path3); free(path4);
 				exit(EXIT_SUCCESS);
 			}
@@ -220,6 +241,9 @@ int main()
 	return 0;
 }
 
+//This function takes the command string
+//tokenizes it, using whitespaces as parameter
+//and puts the tokens in the token array
 void parse_input(char** token, char* cmd_str)
 {
 	int token_count = 0;
@@ -264,7 +288,9 @@ void parse_input(char** token, char* cmd_str)
 	return;
 }
 
-//for both update functions: if counter, aka next position to fill, is less than 
+//these functions uddate the lists of previous commands and child pids, respectivelly
+//they take the array to be updated, the element to be added in, and the next position to be filled
+//for both update functions: if the counter, aka next position to fill, is less than 
 //max possible position, we place new element at that postion
 //else, we shift elements and place new one at last possible location
 
