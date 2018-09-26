@@ -4,6 +4,6 @@
 int main()
 {
 	sleep(10);	
-	printf("Wakey Wakey!\n");
+
 	return 0;
 }

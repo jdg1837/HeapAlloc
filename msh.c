@@ -23,12 +23,12 @@
 
 #define MAX_NUM_ARGUMENTS 11	// Mav shell only supports one command plus 10 arguments at a time
 
-pid_t last_pid;					//this variable will hold pid of last spawned child, to resume it if necessary
+pid_t suspended = 0; //this variable will hold pid of last spawned child, to resume it if necessary, we initialize to zero, as no children has been suspended yet
 
 void parse_input(char**, char*);				//foo to parse input and tokenize it into array of cmd + parameters
 void update_history(char**, char*, int);		//updates array of previous commands typed in
 void update_pids(int[15], int, int);			//updates array of previously spawned pids
-void handle_signal(){}							//handler for SIGTSTP and SIGINT in parent, designed to ignore them
+void handle_signal(){}						//handler for SIGTSTP and SIGINT in parent, designed to ignore them
 
 int main()
 {
@@ -108,7 +108,13 @@ int main()
 		{
 			token[0][0] = '0';
 			int n = atoi(token[0]);
-			if((n <= 0) || (n > hist_ctr))
+
+			if((n <= 0) || (n > 15))
+			{
+				printf("error: n must be in range 1-15.\n");
+				continue;
+			}
+			else if(n > hist_ctr)
 			{
 				printf("Command not in history.\n");
 				continue;
@@ -142,7 +148,7 @@ int main()
 		//bg will background the last spawned process, if possible
 		else if(strcmp(token[0],"bg") == 0)
 		{	
-			kill(last_pid, SIGCONT);
+			kill(suspended, SIGCONT);
 		}
 
 		//listpids list the pids of all children, if they are fewer than 15
@@ -193,13 +199,14 @@ int main()
 			{
 				update_pids(pids, pid, pid_ctr);
 				pid_ctr++;
-				last_pid = pid;
 				wait(&status);
 			}
 
 			//if pid == 0, we are in child. We run command as an exec call
 			else
-			{		
+			{	
+				suspended = getpid(); //since child could be suspended, we save the pid as the one to continue
+
 				//Define paths to search commands in, in the order we will search them
 				char* path1 = (char*)malloc(MAX_COMMAND_SIZE + 15);
 				strcpy(path1,"./");
@@ -227,6 +234,7 @@ int main()
 
 				//whatever the result of the exec call, we free allocated memory and termiante child process
 				free(path1); free(path2); free(path3); free(path4);
+				suspended = 0;	//since we got here, process has been terminated, so we remove it from the bg queue
 				exit(EXIT_SUCCESS);
 			}
 		}
