@@ -25,6 +25,10 @@
 sem_t sem_classA;
 sem_t sem_classB;
 
+//mutexes to protect critical regions
+pthread_mutex_t lock_in;
+pthread_mutex_t lock_out;
+
 static int students_in_office;   /* Total numbers of students currently in the office */
 static int classa_inoffice;      /* Total numbers of students from class A in the office */
 static int classb_inoffice;      /* Total numbers of students from class B in the office */
@@ -116,6 +120,7 @@ void *professorthread(void *junk)
 		/* all of this.                                               */
 
 		//if it is time to take a break, and office is empty, prof does so
+		pthread_mutex_lock(&lock_in);
 		if(students_in_office == 0 && students_since_break == 10)
 			take_break();
 
@@ -123,6 +128,8 @@ void *professorthread(void *junk)
 		//no more students are allowed in
 		if(students_in_office == 3 || students_since_break == 10)
 			continue;
+		
+		pthread_mutex_unlock(&lock_in);
 
 		//if professor has helped 5 students of the same class in a row
 		//we switch to students from the other class
@@ -168,6 +175,7 @@ void *professorthread(void *junk)
 			//if we are going to help students from class a
 			//we let one in as long as no students from
 			//class be are currently in office
+			pthread_mutex_lock(&lock_out);
 			if(outside[CLASSA] > 0)
 			{
 				if(classb_inoffice == 0)
@@ -183,12 +191,14 @@ void *professorthread(void *junk)
 			{
 				to_help = CLASSB;
 				helped = 0;
-			}		
+			}	
+			pthread_mutex_unlock(&lock_out);	
 		}
 
 		//Same functionality, but for class b
 		if(to_help == CLASSB)
 		{
+			pthread_mutex_lock(&lock_out);
 			if(outside[CLASSB] > 0)
 			{
 				if(classa_inoffice == 0)
@@ -201,7 +211,8 @@ void *professorthread(void *junk)
 			{
 				to_help = CLASSA;
 				helped = 0;
-			}		
+			}	
+			pthread_mutex_unlock(&lock_out);	
 		}
 	}
 
@@ -216,18 +227,24 @@ void classa_enter()
 	printf("A\n"); 
 
 	//let professor know a student from class A is waiting
+	pthread_mutex_lock(&lock_out);
 	outside[CLASSA] += 1;
+	pthread_mutex_unlock(&lock_out);
 
 	//wait until professor gives permission to enter office
 	sem_wait(&sem_classA);
 
 	//remove student from queue
+	pthread_mutex_lock(&lock_out);
 	outside[CLASSA] -= 1;
+	pthread_mutex_unlock(&lock_out);
 
 	//change variables to represent student entering office
+	pthread_mutex_lock(&lock_in);
 	students_in_office += 1;
 	students_since_break += 1;
 	classa_inoffice += 1;
+	pthread_mutex_unlock(&lock_in);
 
 }
 
@@ -238,19 +255,24 @@ void classb_enter()
 	printf("B\n");
 
 	//let professor know a student from class B is waiting
+	pthread_mutex_lock(&lock_out);
 	outside[CLASSB] += 1;
+	pthread_mutex_unlock(&lock_out);
 
 	//wait until professor gives permission to enter office
 	sem_wait(&sem_classB);
 
 	//remove student from queue
+	pthread_mutex_lock(&lock_out);
 	outside[CLASSB] -= 1;
+	pthread_mutex_unlock(&lock_out);
 
 	//change variables to represent student entering office
+	pthread_mutex_lock(&lock_in);	
 	students_in_office += 1;
 	students_since_break += 1;
 	classb_inoffice += 1;
-
+	pthread_mutex_unlock(&lock_in);
 }
 
 /* Code executed by a student to simulate the time he spends in the office asking questions */
@@ -270,9 +292,10 @@ static void classa_leave()
 	*  TODO
 	*  YOUR CODE HERE. 
 	*/
-
+	pthread_mutex_lock(&lock_in);
 	students_in_office -= 1;
 	classa_inoffice -= 1;
+	pthread_mutex_unlock(&lock_in);
 }
 
 /* Code executed by a class B student when leaving the office.
@@ -285,9 +308,10 @@ static void classb_leave()
 	* TODO
 	* YOUR CODE HERE. 
 	*/
-
+	pthread_mutex_lock(&lock_in);
 	students_in_office -= 1;
 	classb_inoffice -= 1;
+	pthread_mutex_unlock(&lock_in);
 }
 
 /* Main code for class A student threads.  
