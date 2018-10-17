@@ -17,21 +17,24 @@
 #define CLASSA 0
 #define CLASSB 1
 
-/* TODO */
-/* Add your synchronization variables here */
+/*semaphores for keeping track of permissions to enter office
+  *they represent if students from any class can come in
+  *if value is greater than 0, students may enter
+  *if value is zero, students must wait outside until value changes
+  *only the professor can change these values*/
+sem_t sem_classA;
+sem_t sem_classB;
 
-/* Basic information about simulation.  They are printed/checked at the end 
- * and in assert statements during execution.
- *
- * You are responsible for maintaining the integrity of these variables in the 
- * code that you develop. 
- */
+//mutex to protect critical regions
+pthread_mutex_t lock;
 
 static int students_in_office;   /* Total numbers of students currently in the office */
-static int classa_inoffice;      /* Total numbers of students from class A currently in the office */
+static int classa_inoffice;      /* Total numbers of students from class A in the office */
 static int classb_inoffice;      /* Total numbers of students from class B in the office */
-static int students_since_break = 0;
+static int students_since_break = 0; /*students allowed in since break*/
 
+static int outside[2] = {0, 0}; /*Total number of students from each class waiting to get in*/
+static int counter[2] = {0, 0};
 
 typedef struct 
 {
@@ -55,7 +58,13 @@ static int initialize(student_info *si, char *filename)
 	* other variables you might use) here
 	*/
 
+	/*Initilaization of semaphores,
+	 *students need permission to enter
+	 *at start they don't have it, so values are set to zero*/
 
+	sem_init(&sem_classA, 0, 0);
+	sem_init(&sem_classB, 0, 0);
+	
 	/* Read in the data file and initialize the student array */
 	FILE *fp;
 
@@ -66,7 +75,8 @@ static int initialize(student_info *si, char *filename)
 	}
 
 	int i = 0;
-	while ( (fscanf(fp, "%d%d\n", &(si[i].arrival_time), &(si[i].question_time))!=EOF) && i < MAX_STUDENTS ) 
+	while ( (fscanf(fp, "%d%d\n", &(si[i].arrival_time), &(si[i].question_time))!=EOF) &&
+	 i < MAX_STUDENTS ) 
 	{
 		i++;
 	}
@@ -81,7 +91,7 @@ static int initialize(student_info *si, char *filename)
 static void take_break() 
 {
 	printf("The professor is taking a break now.\n");
-	sleep(5);
+	sleep(5); //that's a short break!
 	assert( students_in_office == 0 );
 	students_since_break = 0;
 }
@@ -93,64 +103,98 @@ void *professorthread(void *junk)
 {
 	printf("The professor arrived and is starting his office hours\n");
 
+	int to_help = CLASSA;
+
 	/* Loop while waiting for students to arrive. */
 	while (1) 
 	{
+		pthread_mutex_lock(&lock);
 
-		/* TODO */
-		/* Add code here to handle the student's request.             */
-		/* Currently the body of the loop is empty. There's           */
-		/* no communication between professor and students, i.e. all  */
-		/* students are admitted without regard of the number         */ 
-		/* of available seats, which class a student is in,           */
-		/* and whether the professor needs a break. You need to add   */
-		/* all of this.                                               */
+		//if it is time to take a break, and office is empty, prof does so
+		if(students_in_office == 0 && students_since_break == 10)
+		{
+			take_break();
+			students_since_break = 0;
+			pthread_mutex_unlock(&lock);
+		}
+
+		//if office is full, or professor is about to take a break
+		//no more students are allowed in, so we loop again
+		else if(students_in_office == 3 || students_since_break == 10)
+		{
+			pthread_mutex_unlock(&lock);
+			continue;
+		}
+		
+		pthread_mutex_unlock(&lock);
+
+		pthread_mutex_lock(&lock);
+
+		if(outside[CLASSA] > 0 && (outside[CLASSB] == 0 || counter[CLASSA] < 5))
+		{
+			if(classb_inoffice == 0 && students_in_office < 3)
+			{
+				sem_post(&sem_classA);
+				outside[CLASSA] -= 1;
+				students_in_office += 1;
+				students_since_break += 1;
+				classa_inoffice += 1;
+				counter[CLASSA] += 1;
+				counter[CLASSB] = 0;
+
+			}	
+			pthread_mutex_unlock(&lock);		
+		}
+
+		else if(outside[CLASSB] > 0 && (outside[CLASSA] == 0 || counter[CLASSB] < 5))
+		{
+			if(classa_inoffice == 0 && students_in_office < 3)
+			{
+				sem_post(&sem_classB);
+				outside[CLASSB] -= 1;
+				students_in_office += 1;
+				students_since_break += 1;
+				classb_inoffice += 1;
+				counter[CLASSB] += 1;
+				counter[CLASSA] = 0 ;
+			}	
+			pthread_mutex_unlock(&lock);
+		}
+
+		else
+			pthread_mutex_unlock(&lock);
 
 	}
+
 	pthread_exit(NULL);
 }
 
 
-/* Code executed by a class A student to enter the office.
- * You have to implement this.  Do not delete the assert() statements,
- * but feel free to add your own.
- */
+/* Code executed by a class A student to enter the office. */
 void classa_enter() 
 {
+	//let professor know a student from class A is waiting
+	pthread_mutex_lock(&lock);
+	outside[CLASSA] += 1;
+	pthread_mutex_unlock(&lock);
 
-	/* TODO */
-	/* Request permission to enter the office.  You might also want to add  */
-	/* synchronization for the simulations variables below                  */
-	/*  YOUR CODE HERE.                                                     */ 
-
-	students_in_office += 1;
-	students_since_break += 1;
-	classa_inoffice += 1;
-
+	//wait until professor gives permission to enter office
+	sem_wait(&sem_classA);
 }
 
-/* Code executed by a class B student to enter the office.
- * You have to implement this.  Do not delete the assert() statements,
- * but feel free to add your own.
- */
+/* Code executed by a class B student to enter the office. */
 void classb_enter() 
 {
+	//let professor know a student from class B is waiting
+	pthread_mutex_lock(&lock);
+	outside[CLASSB] += 1;
+	pthread_mutex_unlock(&lock);
 
-	/* TODO */
-	/* Request permission to enter the office.  You might also want to add  */
-	/* synchronization for the simulations variables below                  */
-	/*  YOUR CODE HERE.                                                     */ 
-
-
-	students_in_office += 1;
-	students_since_break += 1;
-	classb_inoffice += 1;
-
+	//wait until professor gives permission to enter office
+	sem_wait(&sem_classB);
 }
 
-/* Code executed by a student to simulate the time he spends in the office asking questions
- * You do not need to add anything here.  
- */
+/* Code executed by a student to simulate the time he spends in the office asking questions */
 static void ask_questions(int t) 
 {
 	sleep(t);
@@ -163,13 +207,11 @@ static void ask_questions(int t)
  */
 static void classa_leave() 
 {
-	/* 
-	*  TODO
-	*  YOUR CODE HERE. 
-	*/
-
+	//substract student from in-office counters
+	pthread_mutex_lock(&lock);
 	students_in_office -= 1;
 	classa_inoffice -= 1;
+	pthread_mutex_unlock(&lock);
 }
 
 /* Code executed by a class B student when leaving the office.
@@ -178,13 +220,11 @@ static void classa_leave()
  */
 static void classb_leave() 
 {
-	/* 
-	* TODO
-	* YOUR CODE HERE. 
-	*/
-
+	//substract student from in-office counters
+	pthread_mutex_lock(&lock);
 	students_in_office -= 1;
 	classb_inoffice -= 1;
+	pthread_mutex_unlock(&lock);
 }
 
 /* Main code for class A student threads.  
@@ -206,9 +246,13 @@ void* classa_student(void *si)
 	assert(classb_inoffice == 0 );
 
 	/* ask questions  --- do not make changes to the 3 lines below*/
-	printf("Student %d from class A starts asking questions for %d minutes\n", s_info->student_id, s_info->question_time);
+	printf("Student %d from class A starts asking questions for %d minutes\n", 
+	s_info->student_id, s_info->question_time);
+
 	ask_questions(s_info->question_time);
-	printf("Student %d from class A finishes asking questions and prepares to leave\n", s_info->student_id);
+
+	printf("Student %d from class A finishes asking questions and prepares to leave\n", 
+	s_info->student_id);
 
 	/* leave office */
 	classa_leave();  
@@ -240,9 +284,13 @@ void* classb_student(void *si)
 	assert(classa_inoffice >= 0 && classa_inoffice <= MAX_SEATS);
 	assert(classa_inoffice == 0 );
 
-	printf("Student %d from class B starts asking questions for %d minutes\n", s_info->student_id, s_info->question_time);
+	printf("Student %d from class B starts asking questions for %d minutes\n", 
+	s_info->student_id, s_info->question_time);
+
 	ask_questions(s_info->question_time);
-	printf("Student %d from class B finishes asking questions and prepares to leave\n", s_info->student_id);
+
+	printf("Student %d from class B finishes asking questions and prepares to leave\n", 
+	s_info->student_id);
 
 	/* leave office */
 	classb_leave();        
