@@ -23,7 +23,7 @@
 
 /*semaphores for keeping track of permissions to enter office
   *they represent if students from any class can come in
-  *if value is greater than 0, students may enter
+  *if value is greater than 0, that many students may enter
   *if value is zero, students must wait outside until value changes
   *only the professor can change these values*/
 sem_t sem_classA;
@@ -38,7 +38,7 @@ static int classb_inoffice;      /* Total numbers of students from class B in th
 static int students_since_break = 0; /*students allowed in since break*/
 
 static int outside[2] = {0, 0}; /*Total number of students from each class waiting to get in*/
-static int counter[2] = {0, 0};
+static int counter[2] = {0, 0}; /*Total number of students from each class that have been helped in a row*/
 
 typedef struct 
 {
@@ -47,20 +47,16 @@ typedef struct
 	int student_id;
 }	student_info;
 
-/* Called at beginning of simulation.  
- * TODO: Create/initialize all synchronization
- * variables and other global variables that you add.
- */
+//Called at beginning of simulation.  
+//it takes the name of the file to read
+//and the array to fill with student info
 static int initialize(student_info *si, char *filename) 
 {
+	//all counter variables are initialized to zero
 	students_in_office = 0;
 	classa_inoffice = 0;
 	classb_inoffice = 0;
 	students_since_break = 0;
-
-	/* Initialize your synchronization variables (and 
-	* other variables you might use) here
-	*/
 
 	/*Initilaization of semaphores,
 	 *students need permission to enter
@@ -100,9 +96,9 @@ static void take_break()
 	students_since_break = 0;
 }
 
-/* Code for the professor thread. This is fully implemented except for synchronization
- * with the students.  See the comments within the function for details.
- */
+//Code for the professor thread. 
+//Handles synchronization of student
+//behavior
 void *professorthread(void *junk) 
 {
 	printf("The professor arrived and is starting his office hours\n");
@@ -112,13 +108,14 @@ void *professorthread(void *junk)
 	/* Loop while waiting for students to arrive. */
 	while (1) 
 	{
+		//locking critical region while values are read
 		pthread_mutex_lock(&lock);
 
 		//if it is time to take a break, and office is empty, prof does so
 		if(students_in_office == 0 && students_since_break == 10)
 		{
 			take_break();
-			students_since_break = 0;
+			students_since_break = 0; //reset counter
 			pthread_mutex_unlock(&lock);
 		}
 
@@ -132,17 +129,27 @@ void *professorthread(void *junk)
 		
 		pthread_mutex_unlock(&lock);
 
+		//we lock mutex to handle data reading and writing
 		pthread_mutex_lock(&lock);
 
+		//if there are class A waiting
+		//we let one in, as long as there are no B waiting
+		//or we have not helped more than 5 A in a row, even if there are
 		if(outside[CLASSA] > 0 && (outside[CLASSB] == 0 || counter[CLASSA] < 5))
 		{
+			//we make sure they can be allowed in
 			if(classb_inoffice == 0 && students_in_office < 3)
 			{
+				//we signal semaphore and change counters accordingly
 				sem_post(&sem_classA);
+				//we remove student from queue and add them to both office counters
+				//and to the since-break counter
 				outside[CLASSA] -= 1;
 				students_in_office += 1;
 				students_since_break += 1;
 				classa_inoffice += 1;
+				//we increment counter of class A's in a row by one
+				//and reset class B in a row to zero
 				counter[CLASSA] += 1;
 				counter[CLASSB] = 0;
 
@@ -150,6 +157,7 @@ void *professorthread(void *junk)
 			pthread_mutex_unlock(&lock);		
 		}
 
+		//if no A's are let in, we repeat the process but now with B's
 		else if(outside[CLASSB] > 0 && (outside[CLASSA] == 0 || counter[CLASSB] < 5))
 		{
 			if(classa_inoffice == 0 && students_in_office < 3)
@@ -165,6 +173,7 @@ void *professorthread(void *junk)
 			pthread_mutex_unlock(&lock);
 		}
 
+		//if no one is allowed in, we just release the mutex lock and loop again
 		else
 			pthread_mutex_unlock(&lock);
 
