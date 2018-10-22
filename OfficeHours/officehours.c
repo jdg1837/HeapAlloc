@@ -1,3 +1,7 @@
+/*
+	Name: Juan Diego Gonzalez German
+	ID: 1001401837
+*/
 
 #include <pthread.h>
 #include <semaphore.h>
