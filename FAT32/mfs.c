@@ -19,16 +19,28 @@
 FILE *fp;
 int is_open = 0;
 
-int16_t BPB_BytesPerSec;
-int8_t BPB_SecPerClus;
-int16_t BPB_RsvdSecCnt;
-int8_t BPB_NumFATS;
-int32_t BPB_FATSz32;
-
-int cluster_offset;
+uint16_t BPB_BytesPerSec;
+uint8_t BPB_SecPerClus;
+uint16_t BPB_RsvdSecCnt;
+uint8_t BPB_NumFATS;
+uint32_t BPB_FATSz32;
+uint32_t root_offset;
 int cluster_size;
 
 int buffer;
+
+struct __attribute__((__packed__)) DirectoryEntry
+{
+char 	DIR_Name[11];
+uint8_t 	DIR_Attr;
+uint8_t	Unused1[8];
+uint16_t	DIR_FirstClusterHigh;
+uint8_t	Unused2[4];
+uint16_t	DIR_FirstClusterLow;
+uint32_t	DIR_FileSize;
+};
+
+struct DirectoryEntry dir[16];
 
 void parse_input(char**, char*);		//foo to parse input and tokenize it into array of cmd + parameters
 
@@ -102,8 +114,10 @@ int main()
 				fseek(fp, 36,  SEEK_SET);
 				fread(&BPB_FATSz32, 4, 1, fp);
 
-				cluster_offset = (BPB_RsvdSecCnt *BPB_BytesPerSec) + (BPB_NumFATS * BPB_FATSz32 * BPB_BytesPerSec);
+				root_offset = (BPB_RsvdSecCnt *BPB_BytesPerSec) + (BPB_NumFATS * BPB_FATSz32 * BPB_BytesPerSec);
 				cluster_size = BPB_SecPerClus * BPB_BytesPerSec;
+
+			printf("%x\n", root_offset);
 			}
 
 			continue;
@@ -144,12 +158,20 @@ int main()
 
 		else if(strcmp(token[0], "stat") == 0)
 		{
-			fseek(fp, cluster_offset, SEEK_SET);
+			fseek(fp, root_offset, SEEK_SET);
 
-			fseek(fp, 28, SEEK_CUR);
-			fread(&buffer, 4, 1, fp);
-			printf("%d\n", buffer);		
+			for(i = 0; i < 16; i ++)
+			{
+				fread(&dir[i], sizeof(struct DirectoryEntry), 1, fp);
+			}
 
+			for(i = 0; i < 16; i ++)
+			{
+				char name_buffer[12];
+				memcpy(name_buffer, dir[i].DIR_Name, 11);
+				name_buffer[12] = '\0';
+				printf("%s\n", name_buffer);
+			}
 		}
 	}
 }
