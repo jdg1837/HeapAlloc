@@ -31,22 +31,24 @@ int buffer;
 
 struct __attribute__((__packed__)) DirectoryEntry
 {
-char 	DIR_Name[11];
-uint8_t 	DIR_Attr;
-uint8_t	Unused1[8];
-uint16_t	DIR_FirstClusterHigh;
-uint8_t	Unused2[4];
-uint16_t	DIR_FirstClusterLow;
-uint32_t	DIR_FileSize;
+	char 	DIR_Name[11];
+	uint8_t 	DIR_Attr;
+	uint8_t	Unused1[8];
+	uint16_t	DIR_FirstClusterHigh;
+	uint8_t	Unused2[4];
+	uint16_t	DIR_FirstClusterLow;
+	uint32_t	DIR_FileSize;
 };
 
 struct DirectoryEntry dir[16];
 
 void parse_input(char**, char*);		//foo to parse input and tokenize it into array of cmd + parameters
+void get_directory( int directory_LBA );
+int LBAToOffset( int32_t sector );
 
 int main()
 {
-	int i;
+	int i, j;
 	char* cmd_str = (char*) malloc( MAX_COMMAND_SIZE );
 
 	while(1)
@@ -117,7 +119,9 @@ int main()
 				root_offset = (BPB_RsvdSecCnt *BPB_BytesPerSec) + (BPB_NumFATS * BPB_FATSz32 * BPB_BytesPerSec);
 				cluster_size = BPB_SecPerClus * BPB_BytesPerSec;
 
-			printf("%x\n", root_offset);
+				get_directory(root_offset);
+
+				
 			}
 
 			continue;
@@ -158,19 +162,74 @@ int main()
 
 		else if(strcmp(token[0], "stat") == 0)
 		{
-			fseek(fp, root_offset, SEEK_SET);
+			int successful_stat = 0;
 
-			for(i = 0; i < 16; i ++)
+			if(token[1][0] == '\0')
+				continue;
+			
+			int filename_length = strlen(token[1]);
+
+			for(i = 0;  i < filename_length; i++)
+				if(token[1][i] > 96 && token[1][i] < 123)
+					token[1][i] -= 32;
+
+			for(i = 0; i <16; i++)
 			{
-				fread(&dir[i], sizeof(struct DirectoryEntry), 1, fp);
+				char name_buffer[13];
+
+				bzero(name_buffer, 13);
+
+				for(j = 0;;  j++)
+				{
+					if(dir[i].DIR_Name[j] == ' ' || j == 8)
+						break;					
+				
+					name_buffer[j] = dir[i].DIR_Name[j];
+				}
+
+				if(dir[i].DIR_Name[8] != ' ')
+				{
+					name_buffer[j] = '.';
+					name_buffer[++j] = dir[i].DIR_Name[8];
+					name_buffer[++j] = dir[i].DIR_Name[9];
+					name_buffer[++j] = dir[i].DIR_Name[10];
+				}
+
+
+				if(strcmp(name_buffer, token[1]) == 0)
+				{
+					printf("\nAttributes:\t%x\nSize:\t\t%d\nCluster\t\t%d\n", dir[i].DIR_Attr, dir[i].DIR_FileSize, dir[i].DIR_FirstClusterHigh);
+					successful_stat = 1;
+					break;
+				}
 			}
 
+			if(!successful_stat)
+				printf("Error: File not found\n");
+		}
+
+		else if(strcmp(token[0], "get") == 0)
+		{
+			
+		}
+
+		else if(strcmp(token[0], "cd") == 0)
+		{
+			
+		}
+
+		else if(strcmp(token[0], "ls") == 0)
+		{			
 			for(i = 0; i < 16; i ++)
 			{
-				char name_buffer[12];
-				memcpy(name_buffer, dir[i].DIR_Name, 11);
-				name_buffer[12] = '\0';
-				printf("%s\n", name_buffer);
+				if(dir[i].DIR_Attr == 0x01 || dir[i].DIR_Attr == 0x10 || dir[i].DIR_Attr == 0x20)
+				{
+					char name_buffer[12];
+					memcpy(name_buffer, dir[i].DIR_Name, 11);
+					name_buffer[12] = '\0';
+					printf("%s\n", name_buffer);
+//					printf("%s is in cluster low %d\n", name_buffer, dir[i].DIR_FirstClusterLow);
+				}
 			}
 		}
 	}
@@ -212,4 +271,17 @@ void parse_input(char** token, char* cmd_str)
 	return;
 }
 
+int LBAToOffset( int32_t sector){
+	return (( sector - 2 ) * BPB_BytesPerSec ) + ( BPB_BytesPerSec * BPB_RsvdSecCnt ) + ( BPB_NumFATS * BPB_FATSz32 * BPB_BytesPerSec );
+}
 
+void get_directory( int directory_LBA ){
+	int i;
+
+	fseek(fp, directory_LBA, SEEK_SET);
+
+	for(i = 0; i < 16; i ++)
+	{
+		fread(&dir[i], sizeof(struct DirectoryEntry), 1, fp);
+	}
+}
