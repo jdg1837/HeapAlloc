@@ -19,14 +19,16 @@
 FILE *fp;
 int is_open = 0;
 
+char 	VolumeName[11];
 uint16_t BPB_BytesPerSec;
 uint8_t BPB_SecPerClus;
 uint16_t BPB_RsvdSecCnt;
 uint8_t BPB_NumFATS;
 uint32_t BPB_FATSz32;
+
 uint32_t root_offset;
 int cluster_size;
-
+int current_offset;
 int buffer;
 
 struct __attribute__((__packed__)) DirectoryEntry
@@ -45,6 +47,9 @@ struct DirectoryEntry dir[16];
 void parse_input(char**, char*);		//foo to parse input and tokenize it into array of cmd + parameters
 void get_directory( int directory_LBA );
 int LBAToOffset( int32_t sector );
+int compare_names(char*);
+void to_uppercase(char*);
+void format_name(int, char*);
 
 int main()
 {
@@ -97,6 +102,9 @@ int main()
 			{
 				is_open = 1;
 
+				fseek(fp, 71, SEEK_SET);
+				fread(&VolumeName, 11, 1, fp);
+
 				fseek(fp, 11, SEEK_SET);
 				fread(&BPB_BytesPerSec, 2, 1, fp);
 
@@ -120,6 +128,8 @@ int main()
 				cluster_size = BPB_SecPerClus * BPB_BytesPerSec;
 
 				get_directory(root_offset);
+
+				current_offset = root_offset;
 
 				
 			}
@@ -162,75 +172,96 @@ int main()
 
 		else if(strcmp(token[0], "stat") == 0)
 		{
-			int successful_stat = 0;
-
-			if(token[1][0] == '\0')
-				continue;
-			
-			int filename_length = strlen(token[1]);
-
-			for(i = 0;  i < filename_length; i++)
-				if(token[1][i] > 96 && token[1][i] < 123)
-					token[1][i] -= 32;
-
-			for(i = 0; i <16; i++)
+			if(token[1] == NULL)
 			{
-				char name_buffer[13];
-
-				bzero(name_buffer, 13);
-
-				for(j = 0;;  j++)
-				{
-					if(dir[i].DIR_Name[j] == ' ' || j == 8)
-						break;					
-				
-					name_buffer[j] = dir[i].DIR_Name[j];
-				}
-
-				if(dir[i].DIR_Name[8] != ' ')
-				{
-					name_buffer[j] = '.';
-					name_buffer[++j] = dir[i].DIR_Name[8];
-					name_buffer[++j] = dir[i].DIR_Name[9];
-					name_buffer[++j] = dir[i].DIR_Name[10];
-				}
-
-
-				if(strcmp(name_buffer, token[1]) == 0)
-				{
-					printf("\nAttributes:\t%x\nSize:\t\t%d\nCluster\t\t%d\n", dir[i].DIR_Attr, dir[i].DIR_FileSize, dir[i].DIR_FirstClusterHigh);
-					successful_stat = 1;
-					break;
-				}
+				printf("Error: Filename needed\n");
+				continue;			
 			}
 
-			if(!successful_stat)
-				printf("Error: File not found\n");
+			int filename_pos = compare_names(token[1]);
+
+			if(filename_pos == -1)
+					printf("Error: File not found\n");
+			
+			else		
+					printf("\nAttributes:\t%x\nSize:\t\t%d\nCluster\t\t%d\n", dir[filename_pos].DIR_Attr, dir[filename_pos].DIR_FileSize, dir[filename_pos].DIR_FirstClusterLow);
 		}
 
 		else if(strcmp(token[0], "get") == 0)
 		{
-			
+			if(token[1] == NULL)
+			{
+				printf("Error: Filename needed\n");
+				continue;			
+			}
+
+			int filename_pos = compare_names(token[1]);
+
+			if(filename_pos == -1)
+					printf("Error: File not found\n");
+
+			else	
+			{
+
+			}						
 		}
 
 		else if(strcmp(token[0], "cd") == 0)
 		{
-			
+			if(token[1] == NULL)
+			{
+				get_directory(root_offset);
+				continue;
+			}
+
+			int filename_pos = compare_names(token[1]);
+
+			if(filename_pos == -1)
+					printf("Error: File not found\n");
+
+			else	
+			{
+				if(dir[filename_pos].DIR_FileSize == 0)
+					get_directory(LBAToOffset(dir[filename_pos].DIR_FirstClusterLow));
+
+				current_offset = dir[filename_pos].DIR_FirstClusterLow;			
+			}			
 		}
 
 		else if(strcmp(token[0], "ls") == 0)
-		{			
+		{
+			int buffer_offset, dir_changed = 0;
+
+			if(token[1] != NULL)
+				if(strcmp(token[1], "..") == 0  && strcmp(dir[0].DIR_Name, ".."))
+				{
+					get_directory(LBAToOffset(dir[0].DIR_FirstClusterLow));
+					dir_changed = 1;
+				}
+
 			for(i = 0; i < 16; i ++)
 			{
 				if(dir[i].DIR_Attr == 0x01 || dir[i].DIR_Attr == 0x10 || dir[i].DIR_Attr == 0x20)
 				{
 					char name_buffer[12];
 					memcpy(name_buffer, dir[i].DIR_Name, 11);
-					name_buffer[12] = '\0';
+					name_buffer[11] = '\0';
 					printf("%s\n", name_buffer);
-//					printf("%s is in cluster low %d\n", name_buffer, dir[i].DIR_FirstClusterLow);
 				}
 			}
+
+			if(dir_changed)
+			{
+				get_directory(LBAToOffset(current_offset));
+			}
+		}
+
+		else if(strcmp(token[0], "volume") == 0)
+		{
+			char name_buffer[12];
+			memcpy(name_buffer, VolumeName, 11);
+			name_buffer[11] = '\0';
+			printf("Volume Label: %s\n", name_buffer);
 		}
 	}
 }
@@ -269,6 +300,64 @@ void parse_input(char** token, char* cmd_str)
 	free( working_root );
 
 	return;
+}
+
+int compare_names(char* filename)
+{
+	if(filename[0]== '\0')
+		return -1;
+	
+	to_uppercase(filename);
+
+	int i;
+
+	for(i = 0; i <16; i++)
+	{
+		char name_buffer[13];
+
+		format_name(i, name_buffer);
+
+		if(strcmp(name_buffer, filename) == 0)
+			return i;
+	}
+
+	return -1;
+}
+
+void to_uppercase(char* filename)
+{
+	int i;
+
+	int filename_length = strlen(filename);
+
+	for(i = 0;  i < filename_length; i++)
+		if(filename[i] > 96 && filename[i] < 123)
+			filename[i] -= 32;
+}
+
+void format_name(int i, char name_buffer[13])
+{
+	int j;
+
+
+	bzero(name_buffer, 13);
+
+	for(j = 0;;  j++)
+	{
+		if(dir[i].DIR_Name[j] == ' ' || j == 8)
+			break;					
+	
+		name_buffer[j] = dir[i].DIR_Name[j];
+	}
+
+	if(dir[i].DIR_Name[8] != ' ')
+	{
+		name_buffer[j] = '.';
+		name_buffer[++j] = dir[i].DIR_Name[8];
+		name_buffer[++j] = dir[i].DIR_Name[9];
+		name_buffer[++j] = dir[i].DIR_Name[10];
+	}
+
 }
 
 int LBAToOffset( int32_t sector){
