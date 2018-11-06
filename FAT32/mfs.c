@@ -33,11 +33,11 @@ int buffer;
 
 struct __attribute__((__packed__)) DirectoryEntry
 {
-	char 	DIR_Name[11];
+	char 		DIR_Name[11];
 	uint8_t 	DIR_Attr;
-	uint8_t	Unused1[8];
+	uint8_t		Unused1[8];
 	uint16_t	DIR_FirstClusterHigh;
-	uint8_t	Unused2[4];
+	uint8_t		Unused2[4];
 	uint16_t	DIR_FirstClusterLow;
 	uint32_t	DIR_FileSize;
 };
@@ -46,6 +46,7 @@ struct DirectoryEntry dir[16];
 
 void parse_input(char**, char*);		//foo to parse input and tokenize it into array of cmd + parameters
 void get_directory( int directory_LBA );
+int16_t NextLB(uint32_t sector);
 int LBAToOffset( int32_t sector );
 int compare_names(char*);
 void to_uppercase(char*);
@@ -130,8 +131,6 @@ int main()
 				get_directory(root_offset);
 
 				current_offset = root_offset;
-
-				
 			}
 
 			continue;
@@ -187,6 +186,49 @@ int main()
 					printf("\nAttributes:\t%x\nSize:\t\t%d\nCluster\t\t%d\n", dir[filename_pos].DIR_Attr, dir[filename_pos].DIR_FileSize, dir[filename_pos].DIR_FirstClusterLow);
 		}
 
+		else if(strcmp(token[0], "read") == 0)
+		{
+			if(token[1] == NULL)
+			{
+				printf("Error: Filename needed\n");
+				continue;			
+			}
+
+			int pos = compare_names(token[1]);
+
+			if(pos == -1)
+			{
+				printf("Error: File not found\n");
+				continue;
+			}
+
+			int file_size = dir[pos].DIR_FileSize;
+			int LowCluster = dir[i].DIR_FirstClusterLow;
+			
+			int offset = LBAToOffset(LowCluster);
+			fseek(fp, offset, SEEK_SET);
+
+			char buffer1[512];
+
+			while(file_size >= 512)
+			{
+				fwrite(&buffer1, 512, 1, fp);
+				printf("%s", buffer1);
+
+				LowCluster = NextLB(LowCluster);
+				file_size -= 512;
+
+				if(LowCluster == -1)
+					break;
+
+				offset = LBAToOffset(LowCluster);
+				fseek(fp, offset, SEEK_SET);
+			}
+
+			if(file_size > 0)
+				fwrite(stdout, file_size, 1, fp);					
+		}
+
 		else if(strcmp(token[0], "get") == 0)
 		{
 			if(token[1] == NULL)
@@ -195,15 +237,42 @@ int main()
 				continue;			
 			}
 
-			int filename_pos = compare_names(token[1]);
+			int pos = compare_names(token[1]);
 
-			if(filename_pos == -1)
-					printf("Error: File not found\n");
-
-			else	
+			if(pos == -1)
 			{
+				printf("Error: File not found\n");
+				continue;
+			}
+			
+			FILE *new_fp;
+			new_fp = fopen(token[1], "w+");
+			
+			int file_size = dir[pos].DIR_FileSize;
+			int LowCluster = dir[i].DIR_FirstClusterLow;
+			
+			int offset = LBAToOffset(LowCluster);
+			fseek(fp, offset, SEEK_SET);
 
-			}						
+			while(file_size >= 512)
+			{
+				fwrite(new_fp, 512, 1, fp);
+				
+				file_size -= 512;
+
+				LowCluster = NextLB(LowCluster);
+
+				if(LowCluster == -1)
+					break;
+
+				offset = LBAToOffset(LowCluster);
+				fseek(fp, offset, SEEK_SET);
+			}
+
+			if(file_size > 0)
+				fwrite(new_fp, file_size, 1, fp);
+
+			fclose(new_fp);									
 		}
 
 		else if(strcmp(token[0], "cd") == 0)
@@ -233,11 +302,13 @@ int main()
 			int buffer_offset, dir_changed = 0;
 
 			if(token[1] != NULL)
+			{
 				if(strcmp(token[1], "..") == 0  && strcmp(dir[0].DIR_Name, ".."))
 				{
 					get_directory(LBAToOffset(dir[0].DIR_FirstClusterLow));
 					dir_changed = 1;
 				}
+			}
 
 			for(i = 0; i < 16; i ++)
 			{
@@ -360,11 +431,22 @@ void format_name(int i, char name_buffer[13])
 
 }
 
-int LBAToOffset( int32_t sector){
+int16_t NextLB(uint32_t sector)
+{
+	uint32_t FAT_address = (BPB_BytesPerSec*BPB_RsvdSecCnt) + (sector * 4);
+	int16_t next;
+	fseek(fp, FAT_address, SEEK_SET);
+	fread(&next, 2, 1, fp);
+	return next;
+}
+
+int LBAToOffset( int32_t sector)
+{
 	return (( sector - 2 ) * BPB_BytesPerSec ) + ( BPB_BytesPerSec * BPB_RsvdSecCnt ) + ( BPB_NumFATS * BPB_FATSz32 * BPB_BytesPerSec );
 }
 
-void get_directory( int directory_LBA ){
+void get_directory( int directory_LBA )
+{
 	int i;
 
 	fseek(fp, directory_LBA, SEEK_SET);
