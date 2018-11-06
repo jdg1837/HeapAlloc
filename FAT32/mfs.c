@@ -364,11 +364,22 @@ int main()
 
 					dir_changed = 1;
 				}
+
+                if(strcmp(token[1], ".") != 0)
+                {
+                    printf("Error: %s not a valid ls command\n", cmd_str);
+                }
 			}
 
 			for(i = 0; i < 16; i ++)
 			{
-				if((dir[i].DIR_Name[0] == 0xe5) || (dir[i].DIR_Name[0] == 0x05)) printf("YES");
+				if(((dir[i].DIR_Name[0] == 0xffffffe5) || 
+                    (dir[i].DIR_Name[0] == 0xffffff05) ||  
+                    (dir[i].DIR_Name[0] == 0xffffff00)))
+                {
+                    continue;
+                }
+
 				if((dir[i].DIR_Attr == 0x01 || dir[i].DIR_Attr == 0x10 || dir[i].DIR_Attr == 0x20))
 				{
 					char name_buffer[12];
