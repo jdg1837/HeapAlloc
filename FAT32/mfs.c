@@ -403,10 +403,6 @@ int main()
 
 			//call function to tokenize input string		                                   
 			parse_input(path, token[1], 1);
-           
-/*i = 0;
-while(path[i] != NULL)
-            printf("%s\n", path[i++]);*/
 
 			//we keep track of current offset
 			//should the process fail
@@ -419,9 +415,11 @@ while(path[i] != NULL)
 			//we try to cd to every token in the path
             while(path[i] != NULL)
             {
-                if(strcmp(path[i], "~") == 0 )
+/*				const char* tilde = "~";
+
+                if(strcmp(path[i], tilde) == 0 )
                 {
-					//if the path starts with ~ we have a global path
+					//if the path starts with "~" we have a global path
 					//so we move to root and start from there
 					if(i == 0)
 					{
@@ -431,7 +429,7 @@ while(path[i] != NULL)
 						continue;
 					}
                 }
-
+*/printf("wtf");
 				//find the file specified in the current directory
 			    int filename_pos = compare_names(path[i]);
 
@@ -452,9 +450,13 @@ while(path[i] != NULL)
 					if(dir[filename_pos].DIR_FileSize == 0) 
 					{	
 						int cluster = dir[filename_pos].DIR_FirstClusterLow;
-						if( cluster == 0 ) cluster = 2;
+						if( cluster == 0 ) 
+						{
+							cluster = 2;
+						}
 						current_offset = LBAToOffset(cluster);
 						get_directory(current_offset);
+						i++;
 					}
 
 					//if the file exists but it is not a directory
@@ -465,8 +467,6 @@ while(path[i] != NULL)
 						break;
 					}
 				}
-
-                i++;
 			}
 
 			//if the process failed, we print an error message
@@ -613,7 +613,7 @@ void parse_input(char** token, char* cmd_str, int del)
 //if there is none, we return -1
 int compare_names(char* filename)
 {
-	if(filename[0]== '\0')
+	if(filename[0] == '\0')
 		return -1;
 	
 	to_uppercase(filename);
