@@ -11,10 +11,12 @@
 #include <string.h>
 
 #define WHITESPACE " \t\n"	//separators to parse cmd line
+#define SLASH "/"
 
 #define MAX_COMMAND_SIZE 255	// The maximum command-line size
 
 #define MAX_NUM_ARGUMENTS 4	// Mav shell only supports one command plus 10 arguments at a time
+#define MAX_LENGTH_PATH 5
 
 FILE *fp;
 int is_open = 0;
@@ -44,7 +46,7 @@ struct __attribute__((__packed__)) DirectoryEntry
 
 struct DirectoryEntry dir[16];
 
-void parse_input(char**, char*);		//foo to parse input and tokenize it into array of cmd + parameters
+void parse_input(char**, char*, int);		//foo to parse input and tokenize it
 void get_directory( int directory_LBA );
 int16_t NextLB(uint32_t sector);
 int LBAToOffset( int32_t sector );
@@ -82,7 +84,7 @@ int main()
 		char* token[MAX_NUM_ARGUMENTS];                       
 	
 		//call function to tokenize input string		                                   
-		parse_input(token, cmd_str);
+		parse_input(token, cmd_str, 0);
 
 		if((strcmp(token[0], "exit") == 0) || strcmp(token[0], "quit") == 0)
 		{
@@ -329,21 +331,64 @@ int main()
 				continue;
 			}
 
-			int filename_pos = compare_names(token[1]);
+		    //define array for tokenized input
+		    char* path[MAX_LENGTH_PATH];                       
+	
+		    //call function to tokenize input string		                                   
+		    parse_input(path, token[1], 1);
 
-			if(filename_pos == -1)
-					printf("Error: File not found\n");
+            int buffer_offset = current_offset;
 
+            i = 0;
 
-			else	
-			{
-				if(dir[filename_pos].DIR_FileSize == 0) 
+            while(path[i] != NULL)
+            {
+printf("%d, %s\n", i, path[i]);
+                if(strcmp(path[i], "~") == 0 )
+                {
+                    if(i == 0)
+                    {
+				        get_directory(root_offset);
+				        i++;
+                        continue;
+                    }
+
+                    else
+                    {
+                	    printf("Error: Path not found\n");
+                        get_directory(LBAToOffset(buffer_offset));
+                        break;
+                    }
+                }
+                
+			    int filename_pos = compare_names(path[i]);
+
+			    if(filename_pos == -1)
 				{
-					current_offset = dir[filename_pos].DIR_FirstClusterLow;	
-                	int cluster = dir[filename_pos].DIR_FirstClusterLow;
-                	if( cluster == 0 ) cluster = 2;
-					get_directory(LBAToOffset(cluster));
-				}		
+            	    printf("Error: Path not found\n");
+                    get_directory(LBAToOffset(buffer_offset));
+                    break;
+                }
+
+			    else	
+			    {
+				    if(dir[filename_pos].DIR_FileSize == 0) 
+				    {
+					    current_offset = dir[filename_pos].DIR_FirstClusterLow;	
+                    	int cluster = dir[filename_pos].DIR_FirstClusterLow;
+                    	if( cluster == 0 ) cluster = 2;
+					    get_directory(LBAToOffset(cluster));
+				    }
+
+                    else
+                    {
+                	    printf("Error: Path not found\n");
+                        get_directory(LBAToOffset(buffer_offset));
+                        break;
+                    }
+                }
+
+                i++;
 			}		
 		}
 
@@ -408,7 +453,7 @@ int main()
 //This function takes the command string
 //tokenizes it, using whitespaces as parameter
 //and puts the tokens in the token array
-void parse_input(char** token, char* cmd_str)
+void parse_input(char** token, char* cmd_str, int del)
 {
 	int token_count = 0;
 
@@ -424,10 +469,23 @@ void parse_input(char** token, char* cmd_str)
 	char* working_root = working_str;
 
 	// Tokenize the input stringswith whitespace used as the delimiter
+    if(del == 0)
 	while ( ( (arg_ptr = strsep(&working_str, WHITESPACE ) ) != NULL) && 
 			(token_count < MAX_NUM_ARGUMENTS))
 	{
 		token[token_count] = strndup( arg_ptr, MAX_COMMAND_SIZE );
+		
+		if( strlen( token[token_count] ) == 0 )
+		{
+			token[token_count] = NULL;
+		}
+		token_count++;
+	}
+    else if(del == 1)
+	while ( ( (arg_ptr = strsep(&working_str, SLASH ) ) != NULL) && 
+			(token_count < MAX_LENGTH_PATH))
+	{
+		token[token_count] = strndup( arg_ptr, MAX_LENGTH_PATH );
 		
 		if( strlen( token[token_count] ) == 0 )
 		{
@@ -510,7 +568,8 @@ int16_t NextLB(uint32_t sector)
 
 int LBAToOffset( int32_t sector)
 {
-	return (( sector - 2 ) * BPB_BytesPerSec ) + ( BPB_BytesPerSec * BPB_RsvdSecCnt ) + ( BPB_NumFATS * BPB_FATSz32 * BPB_BytesPerSec );
+	return (( sector - 2 ) * BPB_BytesPerSec ) + ( BPB_BytesPerSec * BPB_RsvdSecCnt ) +
+             ( BPB_NumFATS * BPB_FATSz32 * BPB_BytesPerSec );
 }
 
 void get_directory( int directory_LBA )
