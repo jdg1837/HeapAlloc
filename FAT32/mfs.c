@@ -16,7 +16,7 @@
 #define MAX_COMMAND_SIZE 255	// The maximum command-line size
 
 #define MAX_NUM_ARGUMENTS 4	// Mav shell only supports one command plus 10 arguments at a time
-#define MAX_LENGTH_PATH 5
+#define MAX_LENGTH_PATH 15
 
 FILE *fp;
 int is_open = 0;
@@ -29,9 +29,7 @@ uint8_t	 BPB_NumFATS;
 uint32_t BPB_FATSz32;
 
 uint32_t root_offset;
-int cluster_size;
 int current_offset;
-int buffer;
 
 struct __attribute__((__packed__)) DirectoryEntry
 {
@@ -137,8 +135,7 @@ int main()
 				fseek(fp, 36,  SEEK_SET);
 				fread(&BPB_FATSz32, 4, 1, fp);
 
-				root_offset = (BPB_RsvdSecCnt *BPB_BytesPerSec) + (BPB_NumFATS * BPB_FATSz32 * BPB_BytesPerSec);
-				cluster_size = BPB_SecPerClus * BPB_BytesPerSec;
+				root_offset = (BPB_RsvdSecCnt*BPB_BytesPerSec) + (BPB_NumFATS*BPB_FATSz32*BPB_BytesPerSec);
 
 				get_directory(root_offset);
 
@@ -328,73 +325,80 @@ int main()
 			if(token[1] == NULL)
 			{
 				get_directory(root_offset);
+				current_offset = root_offset;
 				continue;
 			}
 
-		    //define array for tokenized input
-		    char* path[MAX_LENGTH_PATH];                       
-	
-		    //call function to tokenize input string		                                   
-		    parse_input(path, token[1], 1);
+			//define array for tokenized input
+			char* path[MAX_LENGTH_PATH];
 
-            int buffer_offset = current_offset;
+			//call function to tokenize input string		                                   
+			parse_input(path, token[1], 1);
 
-            i = 0;
+			int buffer_offset = current_offset;
+
+			int failed = 0;
+
+			i = 0;
 
             while(path[i] != NULL)
             {
-printf("%d, %s\n", i, path[i]);
                 if(strcmp(path[i], "~") == 0 )
                 {
-                    if(i == 0)
-                    {
-				        get_directory(root_offset);
-				        i++;
-                        continue;
-                    }
+					if(i == 0)
+					{
+						current_offset = root_offset;
+						get_directory(root_offset);
+						i++;
+						continue;
+					}
 
-                    else
-                    {
-                	    printf("Error: Path not found\n");
-                        get_directory(LBAToOffset(buffer_offset));
-                        break;
-                    }
+					else
+					{
+						failed = 1;					
+						break;
+					}
                 }
                 
 			    int filename_pos = compare_names(path[i]);
 
-			    if(filename_pos == -1)
+				if(filename_pos == -1)
 				{
-            	    printf("Error: Path not found\n");
-                    get_directory(LBAToOffset(buffer_offset));
-                    break;
-                }
+					failed = 1;
+					break;
+				}
 
-			    else	
-			    {
-				    if(dir[filename_pos].DIR_FileSize == 0) 
-				    {
-					    current_offset = dir[filename_pos].DIR_FirstClusterLow;	
-                    	int cluster = dir[filename_pos].DIR_FirstClusterLow;
-                    	if( cluster == 0 ) cluster = 2;
-					    get_directory(LBAToOffset(cluster));
-				    }
+				else	
+				{
+					if(dir[filename_pos].DIR_FileSize == 0) 
+					{
+						current_offset = dir[filename_pos].DIR_FirstClusterLow;	
+						int cluster = dir[filename_pos].DIR_FirstClusterLow;
+						if( cluster == 0 ) cluster = 2;
+						get_directory(LBAToOffset(cluster));
+					}
 
-                    else
-                    {
-                	    printf("Error: Path not found\n");
-                        get_directory(LBAToOffset(buffer_offset));
-                        break;
-                    }
-                }
+					else
+					{
+						failed = 1;
+						break;
+					}
+				}
 
                 i++;
-			}		
+			}
+
+			if(failed == 1)
+			{
+				printf("Error: Path not found\n");
+				get_directory(LBAToOffset(buffer_offset));
+			}
+	
 		}
 
 		else if(strcmp(token[0], "ls") == 0)
 		{
-			int buffer_offset, dir_changed = 0;
+			int dir_changed = 0;
 
 			if(token[1] != NULL)
 			{
@@ -403,17 +407,17 @@ printf("%d, %s\n", i, path[i]);
 					int filename_pos = compare_names(token[1]);
 					if(filename_pos == -1) continue;
 
-		         	int cluster = dir[filename_pos].DIR_FirstClusterLow;
-		        	if( cluster == 0 ) cluster = 2;
+					int cluster = dir[filename_pos].DIR_FirstClusterLow;
+					if( cluster == 0 ) cluster = 2;
 					get_directory(LBAToOffset(cluster));
 
 					dir_changed = 1;
 				}
 
-                if(strcmp(token[1], ".") != 0)
-                {
-                    printf("Error: %s not a valid ls command\n", cmd_str);
-                }
+				else if(strcmp(token[1], ".") != 0)
+				{
+					printf("Error: %s not a valid ls command\n", cmd_str);
+				}
 			}
 
 			for(i = 0; i < 16; i ++)
@@ -485,7 +489,7 @@ void parse_input(char** token, char* cmd_str, int del)
 	while ( ( (arg_ptr = strsep(&working_str, SLASH ) ) != NULL) && 
 			(token_count < MAX_LENGTH_PATH))
 	{
-		token[token_count] = strndup( arg_ptr, MAX_LENGTH_PATH );
+		token[token_count] = strndup( arg_ptr, MAX_COMMAND_SIZE );
 		
 		if( strlen( token[token_count] ) == 0 )
 		{
