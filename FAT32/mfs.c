@@ -19,11 +19,11 @@
 FILE *fp;
 int is_open = 0;
 
-char 	VolumeName[11];
+char 	 VolumeName[11];
 uint16_t BPB_BytesPerSec;
-uint8_t BPB_SecPerClus;
+uint8_t  BPB_SecPerClus;
 uint16_t BPB_RsvdSecCnt;
-uint8_t BPB_NumFATS;
+uint8_t	 BPB_NumFATS;
 uint32_t BPB_FATSz32;
 
 uint32_t root_offset;
@@ -84,7 +84,17 @@ int main()
 		//call function to tokenize input string		                                   
 		parse_input(token, cmd_str);
 
-		if(strcmp(token[0], "open") == 0)
+		if((strcmp(token[0], "exit") == 0) || strcmp(token[0], "quit") == 0)
+		{
+			if(is_open != 0)
+			{
+				fclose(fp);
+			}
+
+			return 0;
+		}
+
+		else if(strcmp(token[0], "open") == 0)
 		{
 			if(is_open == 1)
 			{
@@ -182,17 +192,30 @@ int main()
 			if(filename_pos == -1)
 					printf("Error: File not found\n");
 			
-			else		
-					printf("\nAttributes:\t%x\nSize:\t\t%d\nCluster\t\t%d\n", dir[filename_pos].DIR_Attr, dir[filename_pos].DIR_FileSize, dir[filename_pos].DIR_FirstClusterLow);
+			else
+			{	
+					printf("\nAttributes:\t%x", dir[filename_pos].DIR_Attr);
+					printf("\nSize:\t\t%d", dir[filename_pos].DIR_FileSize);
+					printf("\nCluster\t\t%d\n", dir[filename_pos].DIR_FirstClusterLow);
+			}
 		}
 
 		else if(strcmp(token[0], "read") == 0)
 		{
-			if(token[1] == NULL)
+			if(token[1] == NULL || token[2] == NULL || token[3] == NULL)
 			{
-				printf("Error: Filename needed\n");
+				printf("Error: Make sure command is of form: read <filename> <position> <number of bytes> \n");
 				continue;			
 			}
+
+			if(token[2] < 0 || token[3] < 0)
+			{
+				printf("Error: offset and number of bytes must be positive");
+				continue;
+			}
+
+			int offset_in = atoi(token[2]);
+			int remaining = atoi(token[3]);
 
 			int pos = compare_names(token[1]);
 
@@ -201,22 +224,31 @@ int main()
 				printf("Error: File not found\n");
 				continue;
 			}
-
-			int file_size = dir[pos].DIR_FileSize;
-			int LowCluster = dir[i].DIR_FirstClusterLow;
 			
-			int offset = LBAToOffset(LowCluster);
+			int file_size = dir[pos].DIR_FileSize;
+
+			if(remaining > (file_size - offset_in))
+			{
+				printf("Error: Values given exceed file size\n");
+				continue;
+			}
+
+			int LowCluster = dir[pos].DIR_FirstClusterLow;
+
+			int offset = LBAToOffset(LowCluster) + offset_in;
+
 			fseek(fp, offset, SEEK_SET);
 
-			char buffer1[512];
-
-			while(file_size >= 512)
+			while(remaining >= 512)
 			{
-				fwrite(&buffer1, 512, 1, fp);
-				printf("%s", buffer1);
+            	char * ptr = (char*)malloc( 512 );
+            	fread( ptr, 1, 512, fp );
+				printf("%s", ptr);
+            	free( ptr );
+				
+				remaining -= 512;
 
 				LowCluster = NextLB(LowCluster);
-				file_size -= 512;
 
 				if(LowCluster == -1)
 					break;
@@ -225,8 +257,13 @@ int main()
 				fseek(fp, offset, SEEK_SET);
 			}
 
-			if(file_size > 0)
-				fwrite(stdout, file_size, 1, fp);					
+			if(remaining > 0) 
+            {
+            	char * ptr = (char*)malloc( remaining );
+            	fread( ptr, 1, remaining, fp );
+				printf("%s", ptr);
+            	free( ptr );
+            }				
 		}
 
 		else if(strcmp(token[0], "get") == 0)
@@ -250,14 +287,17 @@ int main()
 			
 			int file_size = dir[pos].DIR_FileSize;
 			int LowCluster = dir[pos].DIR_FirstClusterLow;
-		printf("Looking for cluster %d\n", LowCluster );	
+
 			int offset = LBAToOffset(LowCluster);
-printf("Offset: %x Name: %s\n", offset, dir[pos].DIR_Name );
+
 			fseek(fp, offset, SEEK_SET);
 
 			while(file_size >= 512)
 			{
-				fwrite(fp, 512, 1, new_fp);
+            	char * ptr = (char*)malloc( 512 );
+            	fread( ptr, 1, 512, fp );
+				fwrite(ptr, 1, 512, new_fp);
+            	free( ptr );
 				
 				file_size -= 512;
 
@@ -271,12 +311,12 @@ printf("Offset: %x Name: %s\n", offset, dir[pos].DIR_Name );
 			}
 
 			if(file_size > 0) 
-                        {
-                                char * ptr = (char*)malloc( file_size );
-                                fread( ptr, 1, file_size, fp );
+            {
+            	char * ptr = (char*)malloc( file_size );
+            	fread( ptr, 1, file_size, fp );
 				fwrite(ptr, file_size, 1, new_fp);
-                                free( ptr );
-                        }
+            	free( ptr );
+            }
 
 			fclose(new_fp);									
 		}
@@ -294,17 +334,17 @@ printf("Offset: %x Name: %s\n", offset, dir[pos].DIR_Name );
 			if(filename_pos == -1)
 					printf("Error: File not found\n");
 
+
 			else	
 			{
 				if(dir[filename_pos].DIR_FileSize == 0) 
-                                {
-                                        int cluster = dir[filename_pos].DIR_FirstClusterLow;
-                                        if( cluster == 0 ) cluster = 2;
+				{
+					current_offset = dir[filename_pos].DIR_FirstClusterLow;	
+                	int cluster = dir[filename_pos].DIR_FirstClusterLow;
+                	if( cluster == 0 ) cluster = 2;
 					get_directory(LBAToOffset(cluster));
-                                }
-
-				current_offset = dir[filename_pos].DIR_FirstClusterLow;			
-			}			
+				}		
+			}		
 		}
 
 		else if(strcmp(token[0], "ls") == 0)
@@ -313,16 +353,23 @@ printf("Offset: %x Name: %s\n", offset, dir[pos].DIR_Name );
 
 			if(token[1] != NULL)
 			{
-				if(strcmp(token[1], "..") == 0  && strcmp(dir[0].DIR_Name, ".."))
+				if(strcmp(token[1], "..") == 0)
 				{
-					get_directory(LBAToOffset(dir[0].DIR_FirstClusterLow));
+					int filename_pos = compare_names(token[1]);
+					if(filename_pos == -1) continue;
+
+		         	int cluster = dir[filename_pos].DIR_FirstClusterLow;
+		        	if( cluster == 0 ) cluster = 2;
+					get_directory(LBAToOffset(cluster));
+
 					dir_changed = 1;
 				}
 			}
 
 			for(i = 0; i < 16; i ++)
 			{
-				if(dir[i].DIR_Attr == 0x01 || dir[i].DIR_Attr == 0x10 || dir[i].DIR_Attr == 0x20)
+				if((dir[i].DIR_Name[0] == 0xe5) || (dir[i].DIR_Name[0] == 0x05)) printf("YES");
+				if((dir[i].DIR_Attr == 0x01 || dir[i].DIR_Attr == 0x10 || dir[i].DIR_Attr == 0x20))
 				{
 					char name_buffer[12];
 					memcpy(name_buffer, dir[i].DIR_Name, 11);
