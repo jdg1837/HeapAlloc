@@ -246,17 +246,18 @@ int main()
 			}
 			
 			FILE *new_fp;
-			new_fp = fopen(token[1], "w+");
+			new_fp = fopen(token[1], "w");
 			
 			int file_size = dir[pos].DIR_FileSize;
-			int LowCluster = dir[i].DIR_FirstClusterLow;
-			
+			int LowCluster = dir[pos].DIR_FirstClusterLow;
+		printf("Looking for cluster %d\n", LowCluster );	
 			int offset = LBAToOffset(LowCluster);
+printf("Offset: %x Name: %s\n", offset, dir[pos].DIR_Name );
 			fseek(fp, offset, SEEK_SET);
 
 			while(file_size >= 512)
 			{
-				fwrite(new_fp, 512, 1, fp);
+				fwrite(fp, 512, 1, new_fp);
 				
 				file_size -= 512;
 
@@ -269,8 +270,13 @@ int main()
 				fseek(fp, offset, SEEK_SET);
 			}
 
-			if(file_size > 0)
-				fwrite(new_fp, file_size, 1, fp);
+			if(file_size > 0) 
+                        {
+                                char * ptr = (char*)malloc( file_size );
+                                fread( ptr, 1, file_size, fp );
+				fwrite(ptr, file_size, 1, new_fp);
+                                free( ptr );
+                        }
 
 			fclose(new_fp);									
 		}
@@ -290,8 +296,12 @@ int main()
 
 			else	
 			{
-				if(dir[filename_pos].DIR_FileSize == 0)
-					get_directory(LBAToOffset(dir[filename_pos].DIR_FirstClusterLow));
+				if(dir[filename_pos].DIR_FileSize == 0) 
+                                {
+                                        int cluster = dir[filename_pos].DIR_FirstClusterLow;
+                                        if( cluster == 0 ) cluster = 2;
+					get_directory(LBAToOffset(cluster));
+                                }
 
 				current_offset = dir[filename_pos].DIR_FirstClusterLow;			
 			}			
