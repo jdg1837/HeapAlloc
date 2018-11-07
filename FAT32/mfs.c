@@ -401,8 +401,29 @@ int main()
 			//define array for tokenized input
 			char* path[MAX_LENGTH_PATH];
 
-			//call function to tokenize input string		                                   
-			parse_input(path, token[1], 1);
+            int length = strlen(token[1]);
+
+			//if path does not end with the delimitator
+			//we copy to a new, bigger string, and attach it
+			//as the parsing function will need it
+            if ( token[1][length-1] != '/')
+			{
+				char* path_buffer = (char*)malloc( MAX_COMMAND_SIZE );
+				memcpy(path_buffer, token[1], length);
+				path_buffer[length] = '/';
+
+				parse_input(path, path_buffer, 1);
+
+				free(path_buffer);
+            }
+
+			//if the user did put the '/'
+			//we parse the given string, as is
+			else
+			{
+				parse_input(path, token[1], 1);
+			}	                                   
+
 
 			//we keep track of current offset
 			//should the process fail
@@ -415,7 +436,7 @@ int main()
 			//we try to cd to every token in the path
             while(path[i] != NULL)
             {
-/*				const char* tilde = "~";
+				const char* tilde = "~";
 
                 if(strcmp(path[i], tilde) == 0 )
                 {
@@ -429,7 +450,7 @@ int main()
 						continue;
 					}
                 }
-*/printf("wtf");
+
 				//find the file specified in the current directory
 			    int filename_pos = compare_names(path[i]);
 
