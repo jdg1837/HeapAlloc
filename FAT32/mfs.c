@@ -289,8 +289,9 @@ int main()
 			while(remaining >= 512)
 			{
 				//we buffer data and then output it to screen
-            	char * ptr = (char*)malloc( 512 );
+            	char * ptr = (char*)malloc( 513 );
             	fread( ptr, 1, 512, fp );
+				ptr[512] = '\0';
 				printf("%s", ptr);
             	free( ptr );
 				
@@ -310,8 +311,9 @@ int main()
 			//we just buffer and output the remaing bytes of data
 			if(remaining > 0) 
             {
-            	char * ptr = (char*)malloc( remaining );
+            	char * ptr = (char*)malloc( remaining + 1 );
             	fread( ptr, 1, remaining, fp );
+				ptr[remaining] = '\0';
 				printf("%s", ptr);
             	free( ptr );
             }				
