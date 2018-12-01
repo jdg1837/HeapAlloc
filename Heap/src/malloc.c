@@ -19,6 +19,8 @@ static int num_blocks        = 0;
 static int num_requested     = 0;
 static int max_heap          = 0;
 
+struct block *findprev(struct block **target);
+
 /*
  *  \brief printStatistics
  *
@@ -69,6 +71,10 @@ int next_failed = 1;
 struct block *findFreeBlock(struct block **last, size_t size) 
 {
    struct block *curr = FreeList;
+   if(curr == NULL)
+   {
+      return curr;
+   }
 
 #if defined FIT && FIT == 0
    /* First fit */
@@ -118,7 +124,8 @@ struct block *findFreeBlock(struct block **last, size_t size)
          }
 
          else
-         {  looped = 1;
+         {  
+            looped = 1;
             curr  = FreeList;            
          }
       }
@@ -127,7 +134,49 @@ struct block *findFreeBlock(struct block **last, size_t size)
 #endif
 
 #if defined WORST && WORST == 0
-   printf("TODO: Implement worst fit here\n");
+   size_t max = curr->size;
+   int found = 0;
+   int looped = 0;
+
+   while(1)
+   {
+      if(curr->free && (curr->size >= size))
+      {
+         found = 1;
+
+         if( (looped == 1) && (curr->size == max) )
+         {
+            break;
+         }
+
+         if(curr->size > max)
+         {
+            max = curr->size;
+         }
+      }
+
+      if(curr->next != NULL)
+      {
+         curr  = curr->next;
+      }
+
+      else
+      {
+         *last = curr;
+         
+         if(found == 0 || looped ==2)
+         {
+            curr = NULL;
+            break;
+         }
+
+         else
+         {  looped = 1;
+            curr  = FreeList;            
+         }
+      }
+
+   }
 #endif
 
 #if defined NEXT && NEXT == 0
@@ -253,8 +302,16 @@ void *malloc(size_t size)
    struct block *last = FreeList;
    struct block *next = findFreeBlock(&last, size);
 
-   /* TODO: Split free block if possible */
-
+/*   if(next != NULL && next->size > size)
+   {
+	struct block *split = NULL;
+	next->size = size;
+	split->size = next->size - size;
+	split->next = next->next;
+	next->next = split;
+	num_splits++;
+   }
+*/
    /* Could not find free block, so grow heap */
    if (next == NULL) 
    {
@@ -271,13 +328,12 @@ void *malloc(size_t size)
    else
    {
       num_mallocs++;
-   }
-   
-   /* Mark block as in use */
-   next->free = false;
+      /* Mark block as in use */
+      next->free = false;
 
-   /* Return data address associated with block */
-   return BLOCK_DATA(next);
+      /* Return data address associated with block */
+      return BLOCK_DATA(next);   
+   }
 }
 
 /*
@@ -308,3 +364,8 @@ void free(void *ptr)
 }
 
 /* vim: set expandtab sts=3 sw=3 ts=6 ft=cpp: --------------------------------*/
+
+
+
+
+
