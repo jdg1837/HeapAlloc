@@ -278,12 +278,12 @@ void *malloc(size_t size)
    /* Look for free block */
    struct block *last = FreeList;
    struct block *next = findFreeBlock(&last, size);
-
-   if(next != NULL && next->size > size)
+if(next != NULL)printf("req: %d, next->size: %d\n", (int)size, (int)next->size);
+   if( (next != NULL) && (next->size > size + sizeof(struct block)) )
    {
-      struct block *split = (struct block *)((size_t) next + sizeof(struct block) + size);
+      struct block *split = (struct block *)((size_t) next + size + sizeof(struct block));
 
-      split->size = next->size - sizeof(struct block) - size;
+      split->size = next->size - size -sizeof(struct block);
       split->next = next->next;
       split->free = true;
       next->size = size;
@@ -291,13 +291,15 @@ void *malloc(size_t size)
       next->free = false;
       num_splits++;
       num_blocks++;
+
+      num_mallocs++;
+      return BLOCK_DATA(next);
    }
    
    /* Could not find free block, so grow heap */
    if (next == NULL) 
    {
       next = growHeap(last, size);
-      num_grows++;
    }
 
    /* Could not find free block or grow heap, so just return NULL */
@@ -356,7 +358,7 @@ void free(void *ptr)
          curr->size = new_size;
          curr->next = merger->next;
          num_coalesces++;
-         num_blocks++;
+         num_blocks--;
       }
 
       else
