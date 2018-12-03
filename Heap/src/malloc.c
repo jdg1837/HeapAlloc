@@ -85,112 +85,54 @@ struct block *findFreeBlock(struct block **last, size_t size)
 #endif
 
 #if defined BEST && BEST == 0
-   /* set the first size as the one to compare to
-    * the block with smaller size that s greater than the needed
-    * will be the best fit*/
-   size_t min = curr->size;
-   int found = 0;
-   int looped = 0;
 
-   while(1)
+   struct block *best = NULL;
+   size_t min = -1;
+
+   while(curr)
    {
       if(curr->free && (curr->size >= size))
       {
-         found = 1;
-//         printf("%d, %d, %d\n", looped, min, curr->size);
-         if( (looped == 1) && (curr->size == min) )
+         if((min = -1) || (curr->size < min))
          {
-            break; 
-         }
-
-         if(curr->size < min)
-         {printf("YES");
+            best = curr;
             min = curr->size;
          }
       }
 
-      if(curr->next != NULL)
-      {
-         curr  = curr->next;
-      }
-
-      else
-      {
-         *last = curr;
-         
-         if(found == 0 || looped == 2)
-         {
-            curr = NULL;
-            break;
-         }
-
-         else
-         {  
-            looped++;
-            curr  = FreeList;            
-         }
-      }
+      *last = curr;
+      curr  = curr->next;
    }
-//   printf("%d\n", looped);
+   
+   curr = best;
+   
 #endif
 
 #if defined WORST && WORST == 0
-   size_t max = curr->size;
-   int found = 0;
-   int looped = 0;
 
-   while(1)
+   struct block *worst = NULL;
+   size_t max = -1;
+
+   while(curr)
    {
       if(curr->free && (curr->size >= size))
       {
-         found = 1;
-
-         if( (looped == 1) && (curr->size == max) )
+         if((max = -1) || (curr->size > max))
          {
-            break;
-         }
-
-         if(curr->size > max)
-         {
+            worst = curr;
             max = curr->size;
          }
       }
 
-      if(curr->next != NULL)
-      {
-         curr  = curr->next;
-      }
-
-      else
-      {
-         *last = curr;
-         
-         if(found == 0 || looped ==2)
-         {
-            curr = NULL;
-            break;
-         }
-
-         else
-         {  
-            looped++;
-            curr  = FreeList;            
-         }
-      }
-
+      *last = curr;
+      curr  = curr->next;
    }
+   
+   curr = worst;
+
 #endif
 
 #if defined NEXT && NEXT == 0
- /*  k++;
-   printf("%d\n", k);
-   
-   if(k >= 2000)
-   {
-   	printf("OK");
-   	if(FreeList == NULL)
-   		{printf("YELL\n");}
-   }*/
 
    if(MostRecent == NULL)
    {
@@ -235,6 +177,7 @@ struct block *findFreeBlock(struct block **last, size_t size)
    {
       MostRecent = curr;
    }
+   
 #endif
 
    if(curr != NULL)
