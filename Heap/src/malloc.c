@@ -18,9 +18,7 @@ static int num_coalesces     = 0;
 static int num_blocks        = 0;
 static int num_requested     = 0;
 static int max_heap          = 0;
-
-struct block *findprev(struct block **target);
-
+int k = 0;
 /*
  *  \brief printStatistics
  *
@@ -53,8 +51,8 @@ struct block
 };
 
 struct block *FreeList = NULL; /* Free list to track the blocks available */
-struct block *MostRecent = NULL; 
-int next_failed = 1;
+struct block *MostRecent = NULL; /*tracks the last block used, for next fit*/ 
+int next_failed = 1; /*tracks if next fit failed*/
 
 /*
  * \brief findFreeBlock
@@ -64,20 +62,21 @@ int next_failed = 1;
  *
  * \return a block that fits the request or NULL if no free block matches
  *
- * \TODO Implement Next Fit
- * \TODO Implement Best Fit
- * \TODO Implement Worst Fit
  */
 struct block *findFreeBlock(struct block **last, size_t size) 
 {
    struct block *curr = FreeList;
+   
    if(curr == NULL)
    {
       return curr;
    }
 
 #if defined FIT && FIT == 0
-   /* First fit */
+   /* First fit
+    * check all blocks in list. If one works, take it and break
+    * Mark last as each, so if none is found, we grow heap
+    * after the actual last block*/
    while (curr && !(curr->free && curr->size >= size)) 
    {
       *last = curr;
@@ -86,7 +85,9 @@ struct block *findFreeBlock(struct block **last, size_t size)
 #endif
 
 #if defined BEST && BEST == 0
-   
+   /* set the first size as the one to compare to
+    * the block with smaller size that s greater than the needed
+    * will be the best fit*/
    size_t min = curr->size;
    int found = 0;
    int looped = 0;
@@ -96,14 +97,14 @@ struct block *findFreeBlock(struct block **last, size_t size)
       if(curr->free && (curr->size >= size))
       {
          found = 1;
-
+//         printf("%d, %d, %d\n", looped, min, curr->size);
          if( (looped == 1) && (curr->size == min) )
          {
-            break;
+            break; 
          }
 
          if(curr->size < min)
-         {
+         {printf("YES");
             min = curr->size;
          }
       }
@@ -117,7 +118,7 @@ struct block *findFreeBlock(struct block **last, size_t size)
       {
          *last = curr;
          
-         if(found == 0 || looped ==2)
+         if(found == 0 || looped == 2)
          {
             curr = NULL;
             break;
@@ -125,12 +126,12 @@ struct block *findFreeBlock(struct block **last, size_t size)
 
          else
          {  
-            looped = 1;
+            looped++;
             curr  = FreeList;            
          }
       }
-
    }
+//   printf("%d\n", looped);
 #endif
 
 #if defined WORST && WORST == 0
@@ -171,7 +172,8 @@ struct block *findFreeBlock(struct block **last, size_t size)
          }
 
          else
-         {  looped = 1;
+         {  
+            looped++;
             curr  = FreeList;            
          }
       }
@@ -180,15 +182,42 @@ struct block *findFreeBlock(struct block **last, size_t size)
 #endif
 
 #if defined NEXT && NEXT == 0
+ /*  k++;
+   printf("%d\n", k);
+   
+   if(k >= 2000)
+   {
+   	printf("OK");
+   	if(FreeList == NULL)
+   		{printf("YELL\n");}
+   }*/
+
    if(MostRecent == NULL)
    {
       MostRecent = FreeList;
    }
 
    curr = MostRecent;
+   
 
-   while (curr && !(curr->free && curr->size >= size)) 
+   int been_here = 0;
+
+   while (!(curr->free && curr->size >= size)) 
    {
+      if(curr == MostRecent)
+      {
+         if(been_here == 0)
+         {
+            been_here = 1;
+         }
+         else
+         {
+            curr = NULL;
+            next_failed = 1;
+            break;
+         }
+      }
+
       if(curr->next != NULL)
       {
          curr  = curr->next;
@@ -200,19 +229,18 @@ struct block *findFreeBlock(struct block **last, size_t size)
          curr  = FreeList;
       }
 
-      if(curr == MostRecent)
-      {
-         curr = NULL;
-         next_failed = 1;
-         break;
-	}      
-   }
+   }      
 
    if(next_failed != 1)
    {
       MostRecent = curr;
    }
 #endif
+
+   if(curr != NULL)
+   {
+      num_reuses++;
+   }
 
    return curr;
 }
@@ -261,6 +289,10 @@ struct block *growHeap(struct block *last, size_t size)
       last->next = curr;
    }
 
+   num_grows++;
+   num_blocks++;
+   max_heap += size;
+
    /* Update block metadata */
    curr->size = size;
    curr->next = NULL;
@@ -283,6 +315,8 @@ struct block *growHeap(struct block *last, size_t size)
 void *malloc(size_t size) 
 {
 
+   num_requested += size;
+
    if( atexit_registered == 0 )
    {
       atexit_registered = 1;
@@ -302,16 +336,20 @@ void *malloc(size_t size)
    struct block *last = FreeList;
    struct block *next = findFreeBlock(&last, size);
 
-/*   if(next != NULL && next->size > size)
+   if(next != NULL && next->size > size)
    {
-	struct block *split = NULL;
-	next->size = size;
-	split->size = next->size - size;
-	split->next = next->next;
-	next->next = split;
-	num_splits++;
+      struct block *split = (struct block *)((size_t) next + sizeof(struct block) + size);
+
+      split->size = next->size - sizeof(struct block) - size;
+      split->next = next->next;
+      split->free = true;
+      next->size = size;
+      next->next = split;
+      next->free = false;
+      num_splits++;
+      num_blocks++;
    }
-*/
+   
    /* Could not find free block, so grow heap */
    if (next == NULL) 
    {
@@ -354,13 +392,35 @@ void free(void *ptr)
    }
 
    /* Make block as free */
-   struct block *curr = BLOCK_HEADER(ptr);
-   assert(curr->free == 0);
-   curr->free = true;
+   struct block *freed = BLOCK_HEADER(ptr);
+   assert(freed->free == 0);
+   freed->free = true;
 
    num_frees++;
 
    /* TODO: Coalesce free blocks if needed */
+
+   struct block *curr = FreeList;
+
+   while(curr->next != NULL)
+   {
+      if( (curr->free == true) && (curr->next->free == true) )
+      {
+         struct block *merger = curr->next;
+         if(MostRecent == merger)
+         	MostRecent = curr;
+         size_t new_size = curr->size + merger->size;
+         curr->size = new_size;
+         curr->next = merger->next;
+         num_coalesces++;
+         num_blocks++;
+      }
+
+      else
+      {
+         curr = curr->next;
+      }
+   }
 }
 
 /* vim: set expandtab sts=3 sw=3 ts=6 ft=cpp: --------------------------------*/
